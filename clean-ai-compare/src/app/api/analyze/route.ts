@@ -1,5 +1,3 @@
-// src/app/api/analyze/route.ts
-export const runtime = "nodejs"; // Kimlik dosyasını (service-account.json) okuyabilsin
 import { NextResponse } from "next/server";
 import { analyzeWithVertex } from "@/lib/vertex";
 import type { ProductSearchResult, Criteria } from "@/types";
@@ -15,11 +13,7 @@ export async function POST(req: Request) {
     }
     const analysis = await analyzeWithVertex(items, criteria);
     return NextResponse.json({ analysis });
-  } catch (e: any) {
-    console.error("ANALYZE_ERROR", {
-      message: e?.message || String(e),
-      stack: e?.stack,
-    });
+  } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: "analyze failed", message: msg }, { status: 500 });
   }

@@ -1,22 +1,36 @@
 // src/types.ts
-
-// Örnek: API cevabı tipleri
 export interface AIResponse {
-    model: string;
-    content: string;
-    timestamp: string;
+    text: string;
+    sources?: { name?: string; url: string }[];
 }
 
-// Örnek: Arama sonuçları tipleri
-export interface SearchResult {
-    title: string;
-    url: string;
-    snippet: string;
-}
-
-// Örnek: Chat mesajları tipleri
 export interface ChatMessage {
-    role: 'user' | 'assistant' | 'system';
+    role: "user" | "assistant" | "system";
     content: string;
     createdAt?: Date;
+}
+
+// Serper "shopping" sonuçları için temel alanlar
+export interface ProductSearchResult {
+    title: string;
+    link: string;
+    source?: string;   // "shopping" | "web" gibi (opsiyonel)
+    price?: string;    // "₺1.599" gibi metin
+    rating?: number;
+    reviews?: string;
+    position?: number;
+    thumbnail?: string;
+
+    // normalize.ts ile ekleyeceğiz:
+    priceNum?: number;
+    dpi?: number;
+    weight?: number;
+}
+
+export interface Criteria {
+    connection?: "any" | "wireless" | "wired";
+    maxWeight?: number;
+    minDpi?: number;
+    budget?: [number, number];
+    brands?: string[];
 }

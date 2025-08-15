@@ -1,53 +1,65 @@
 import { VertexAI } from "@google-cloud/vertexai";
-import { ProductSearchResult, Criteria } from "@/types";
 
-const projectId =
-    process.env.GOOGLE_CLOUD_PROJECT ||
-    process.env.GCP_PROJECT ||
-    process.env.GCLOUD_PROJECT;
+const project = process.env.GOOGLE_CLOUD_PROJECT || "ai-compare";
+const location = process.env.GOOGLE_CLOUD_REGION || "us-central1";
 
-const location = process.env.GOOGLE_CLOUD_REGION || "us-central1"; // 2.5 Pro için genelde US
+const vertexAI = new VertexAI({ project, location });
 
-const PREFERRED_MODEL = "gemini-2.5-pro";
-const FALLBACK_MODEL = "gemini-1.5-pro-002";
+export async function analyzeWithVertex(products: any[], query: string) {
+    const models = [
+        { name: "gemini-2.5-pro", maxOutputTokens: 2000 },
+        { name: "gemini-2.5-flash", maxOutputTokens: 1000 },
+    ];
 
-function buildPrompt(items: ProductSearchResult[], criteria?: Criteria) {
-    const crit = criteria ? `Kriterler: ${JSON.stringify(criteria)}` : "Kriterler: (belirtilmedi)";
-    return `Aşağıdaki mouse ürünlerini karşılaştır ve öner:
+    // Ürün listesini kısa formatta hazırla
+    const productList = products
+        .map(
+            (p, i) =>
+                `${i + 1}) ${p.title || p.name} — ${p.price || "Fiyat yok"} — ${p.link}`
+        )
+        .join("\n");
 
-${crit}
+    // Sade prompt
+    const prompt = `
+Kullanıcı şu sorguyu yaptı: "${query}".
 
-Ürünler (Serper):
-${JSON.stringify(items.slice(0, 8), null, 2)}
+Aşağıdaki ürün listesine bak ve sadece en uygun olan 3 ürünü listele:
+- Marka & Model adı
+- Kısa açıklama (en fazla 1 cümle)
+- Fiyat bilgisi
+- Link
 
-Şu çıktıyı üret:
-- 3 öneri (Model — kısa neden)
-- Fiyat bandı: aynı / daha ucuz / bir tık pahalı (tahmin)
-- Tablo: Model | Tahmini Fiyat | Ağırlık | DPI | Bağlantı (bilgi yoksa "—")
-- 3 kaynak linki (varsa)`;
-}
+Sadece bu bilgileri ver, fazladan analiz, giriş, ya da uzun açıklama ekleme.
+Ürün listesi:
+${productList}
+`;
 
-export async function analyzeWithVertex(
-    items: ProductSearchResult[],
-    criteria?: Criteria
-): Promise<string> {
-    if (!projectId) throw new Error("GOOGLE_CLOUD_PROJECT is undefined");
+    for (const model of models) {
+        try {
+            const generativeModel = vertexAI.getGenerativeModel({
+                model: model.name,
+                generationConfig: {
+                    maxOutputTokens: model.maxOutputTokens,
+                    temperature: 0.3, // Daha stabil sonuç için düşük temperature
+                },
+            });
 
-    const vertex = new VertexAI({ project: projectId, location });
-    const prompt = buildPrompt(items, criteria);
+            const result = await generativeModel.generateContent(prompt);
+            const response = result.response;
 
-    try {
-        const model = vertex.getGenerativeModel({ model: PREFERRED_MODEL });
-        const r = await model.generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] });
-        const text = r?.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-        if (text) return text;
-        throw new Error("Empty response");
-    } catch (e) {
-        console.warn("2.5 Pro failed, falling back to 1.5 Pro:", e);
-        const model = vertex.getGenerativeModel({ model: FALLBACK_MODEL });
-        const r = await model.generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] });
-        const text = r?.response?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-        if (!text) throw new Error("Vertex response empty");
-        return text;
+            if (
+                response &&
+                response.candidates &&
+                response.candidates.length > 0 &&
+                response.candidates[0].content.parts &&
+                response.candidates[0].content.parts[0].text
+            ) {
+                return response.candidates[0].content.parts[0].text;
+            }
+        } catch (err) {
+            console.error(`[${model.name}] HATA`, err);
+        }
     }
+
+    return "Analiz yapılamadı. Lütfen daha sonra tekrar deneyin.";
 }
