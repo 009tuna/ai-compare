@@ -1,26 +1,34 @@
 // src/app/api/analyze/route.ts
-export const runtime = "nodejs"; // Kimlik dosyasını (service-account.json) okuyabilsin
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { analyzeWithVertex } from "@/lib/vertex";
-import type { ProductSearchResult, Criteria } from "@/types";
+import type { Product } from "@/lib/enrich";
 
-export async function POST(req: Request) {
+// Criteria'nın obje olma ihtimaline karşı geniş tip:
+type Criteria = string | Record<string, unknown>;
+
+export async function POST(req: NextRequest) {
   try {
-    const { items, criteria } = (await req.json()) as {
-      items: ProductSearchResult[];
+    const body = (await req.json()) as {
+      items?: Product[];
       criteria?: Criteria;
     };
-    if (!Array.isArray(items) || !items.length) {
+
+    if (!Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json({ error: "items required" }, { status: 400 });
     }
-    const analysis = await analyzeWithVertex(items, criteria);
-    return NextResponse.json({ analysis });
-  } catch (e: any) {
-    console.error("ANALYZE_ERROR", {
-      message: e?.message || String(e),
-      stack: e?.stack,
-    });
+
+    // criteria'yı string'e indirgeme (obje ise JSON'a çevir, yoksa default)
+    const critText =
+      typeof body.criteria === "string"
+        ? body.criteria
+        : body.criteria
+          ? JSON.stringify(body.criteria)
+          : "Genel değerlendirme";
+
+    const analysis = await analyzeWithVertex(body.items, critText);
+    return NextResponse.json(analysis);
+  } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ error: "analyze failed", message: msg }, { status: 500 });
+    return NextResponse.json({ error: "analyze-failed", message: msg }, { status: 500 });
   }
 }
