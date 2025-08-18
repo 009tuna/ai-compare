@@ -9,7 +9,7 @@ export default function Page() {
           <div className="rounded-3xl bg-gradient-to-br from-indigo-500 via-sky-500 to-cyan-400 p-1 shadow-xl">
             <div className="rounded-3xl bg-white/90 p-8 dark:bg-slate-950/80">
               <h1 className="mb-3 text-3xl font-extrabold leading-tight md:text-4xl">
-                Sezgisel karşılaştırma <span className="underline decoration-wavy decoration-cyan-400"></span>
+                Sezgisel Karşılaştırma <span className="underline decoration-wavy decoration-cyan-400"></span>
               </h1>
               <p className="mb-6 text-slate-600 dark:text-slate-300">
                 AI, Türkiye e-ticaret sitelerinden çektiği verileri işler; fiyat ve önemli özellikleri tek listede sunar.

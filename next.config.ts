@@ -1,16 +1,11 @@
 import type { NextConfig } from "next";
-import path from "path";
 
 const nextConfig: NextConfig = {
   eslint: { ignoreDuringBuilds: true },
-  webpack: (config) => {
-    config.resolve = config.resolve || {};
-    config.resolve.alias = {
-      ...(config.resolve.alias || {}),
-      "@": path.resolve(__dirname, "src"),
-    };
-    return config;
-  },
+  // Not: experimental.turbo / experimental.appDir kaldırıldı.
+  // Not: webpack override kaldırıldı; böylece Turbopack dev+build'te devreye girer.
+  // (İsterseniz aşağıdaki satırı eklemek opsiyonel)
+  turbopack: {},
 };
 
 export default nextConfig;

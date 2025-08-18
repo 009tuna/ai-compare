@@ -1,3 +1,4 @@
+// src/lib/enrich.ts
 export type Source = { url: string; price?: number | null };
 export type Product = {
     name: string;
@@ -6,15 +7,28 @@ export type Product = {
     specs: Record<string, any>;
 };
 
-const TL_RE = /(?:₺|tl)\s*([\d\.]+(?:,\d{2})?)/i;
+// TL: birden çok eşleşmeyi yakala; makul aralıkta medyanı dön
+const TL_RE =
+    /(?:₺|\bTL\b)\s*([0-9]{1,3}(?:\.[0-9]{3})*(?:,[0-9]{2})?|[0-9]+(?:,[0-9]{2})?)/gi;
+
+export function isPriceSane(n: number) {
+    // "9 TL", "45 TL" gibi anlamsız değerleri ele
+    return n >= 200 && n <= 200000;
+}
 
 export function parsePriceTRY(s?: string): number | null {
     if (!s) return null;
-    const m = s.match(TL_RE);
-    if (!m) return null;
-    const norm = m[1].replace(/\./g, "").replace(",", ".");
-    const n = Number(norm);
-    return Number.isFinite(n) ? Math.round(n) : null;
+    let m: RegExpExecArray | null;
+    const nums: number[] = [];
+    while ((m = TL_RE.exec(s)) !== null) {
+        const raw = m[1];
+        const n = Number(String(raw).replace(/\./g, "").replace(",", "."));
+        if (Number.isFinite(n)) nums.push(Math.round(n));
+    }
+    const candidates = nums.filter(isPriceSane);
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => a - b);
+    return candidates[Math.floor(candidates.length / 2)]; // medyan
 }
 
 export function normalizeName(name: string): string {
@@ -34,7 +48,11 @@ export function mergeProducts(items: { title: string; link: string; price?: stri
                 name: it.title,
                 sources: [{ url: it.link, price: priceNum }],
                 specs: {},
-                price: { min: priceNum ?? null, max: priceNum ?? null, currency: "TRY" }
+                price: {
+                    min: priceNum ?? null,
+                    max: priceNum ?? null,
+                    currency: "TRY",
+                },
             });
         } else {
             const p = map.get(key)!;
@@ -45,5 +63,7 @@ export function mergeProducts(items: { title: string; link: string; price?: stri
             }
         }
     }
-    return Array.from(map.values());
+
+    // ürünün en az bir makul fiyatı yoksa ele
+    return Array.from(map.values()).filter((p) => typeof p.price?.min === "number" && isPriceSane(p.price!.min!));
 }

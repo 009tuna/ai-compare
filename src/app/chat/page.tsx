@@ -1,9 +1,20 @@
+// src/app/chat/page.tsx
 "use client";
+
 import { useState, useRef, useEffect } from "react";
 import ProductCard from "@/components/ProductCard";
 import { LoadingSteps } from "@/components/LoadingSteps";
+import type { ProductSearchResult } from "@/types";
 
 type Msg = { role: "user" | "assistant"; text: string; products?: any[] };
+type Category = "mouse" | "klavye" | "kulaklik";
+
+function detectCategory(q: string): Category {
+    const s = q.toLowerCase();
+    if (/(klavye|keyboard)/i.test(s)) return "klavye";
+    if (/(kulaklık|kulaklik|headset|kulak|earbud|earbuds)/i.test(s)) return "kulaklik";
+    return "mouse";
+}
 
 export default function ChatPage() {
     const [input, setInput] = useState("");
@@ -26,24 +37,50 @@ export default function ChatPage() {
         setStage(0);
 
         try {
-            // 1) Assistant metni (senin mevcut /api/analyze endpoint’in)
+            // 1) TR-only arama
             setStage(0);
+            const category = detectCategory(q);
+            const sRes = await fetch(
+                `/api/search?q=${encodeURIComponent(q)}&category=${category}&strict=1`
+            );
+
+            if (!sRes.ok) {
+                const e = await sRes.json().catch(() => ({}));
+                throw new Error(e?.message || `search failed ${sRes.status}`);
+            }
+
+            const sJson = await sRes.json();
+            const products: ProductSearchResult[] = Array.isArray(sJson?.products) ? sJson.products : [];
+            const top10: ProductSearchResult[] = Array.isArray(sJson?.bands?.top10) ? sJson.bands.top10 : [];
+
+            // 2) Hiç uygun ürün yoksa analyze çağırma; kullanıcıya sebeple dön
+            if (!top10.length) {
+                const msg =
+                    sJson?.message ||
+                    "Türkiye sitelerinde uygun ürün/detay sayfası bulunamadı. Arama ifadesini biraz genişlet veya marka/model adı ekle.";
+                setMsgs((m) => [...m, { role: "assistant", text: msg, products }]);
+                setSending(false);
+                setStage(0);
+                return;
+            }
+
+            // 3) Kısa analiz
+            setStage(1);
             const aRes = await fetch("/api/analyze", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prompt: q }),
+                body: JSON.stringify({
+                    items: top10,     // Product[]
+                    criteria: q,      // string kabul edilecek (endpoint düzeltildi)
+                }),
             });
-            const aJson = await aRes.json();
-            const assistantText = (aJson?.text || aJson?.answer || "Özet hazırlanıyor...").toString();
 
-            // 2) Ürün araması (bizim /api/search → bands.top10)
-            setStage(1);
-            const sRes = await fetch(`/api/search?q=${encodeURIComponent(q)}`);
             setStage(2);
-            const sJson = await sRes.json();
-            const top10 = sJson?.bands?.top10 ?? [];
+            const aJson = await aRes.json();
+            const assistantText =
+                (aJson?.analysis || aJson?.text || aJson?.answer || "Özet hazırlanıyor...").toString();
 
-            // 3) Mesajı yaz
+            // 4) Mesaj (analiz + ürün kartları)
             setStage(3);
             setMsgs((m) => [...m, { role: "assistant", text: assistantText, products: top10 }]);
         } catch (e: any) {
@@ -58,35 +95,32 @@ export default function ChatPage() {
     }
 
     return (
-        <div className="max-w-6xl mx-auto p-4 md:p-6">
-            <h1 className="text-2xl font-bold mb-4">Chatbot</h1>
+        <div className="max-w-5xl mx-auto px-4 py-6">
+            <h1 className="text-2xl font-semibold mb-4">Chatbot</h1>
 
-            {/* Mesaj listesi */}
             <div
                 ref={listRef}
-                className="h-[60vh] border rounded-2xl bg-white shadow-sm p-4 overflow-y-auto space-y-3"
+                className="border rounded-xl p-4 bg-white shadow-sm h-[50vh] overflow-y-auto space-y-4"
             >
                 {msgs.length === 0 && (
-                    <div className="text-gray-500 text-sm">
-                        Örn: <em>“1500–3000 TL arası kablosuz, 60g altı mouse öner”</em>
+                    <div className="text-gray-500">
+                        Örn: “1500–3000 TL arası kablosuz, 60g altı mouse öner”
                     </div>
                 )}
 
                 {msgs.map((m, i) => (
-                    <div
-                        key={i}
-                        className={
-                            "max-w-[90%] rounded-2xl px-3 py-2 " +
-                            (m.role === "user"
-                                ? "ml-auto bg-green-600 text-white"
-                                : "bg-gray-50 border")
-                        }
-                    >
-                        <p className="whitespace-pre-wrap leading-6">{m.text}</p>
+                    <div key={i} className={m.role === "user" ? "text-right" : "text-left"}>
+                        <div
+                            className={
+                                "inline-block px-3 py-2 rounded-lg " +
+                                (m.role === "user" ? "bg-emerald-600 text-white" : "bg-gray-100")
+                            }
+                        >
+                            {m.text}
+                        </div>
 
-                        {/* Assistant ürün kartları */}
                         {m.role === "assistant" && Array.isArray(m.products) && m.products.length > 0 && (
-                            <div className="mt-3 grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                            <div className="grid md:grid-cols-2 gap-4 mt-3">
                                 {m.products.map((p: any, idx: number) => (
                                     <ProductCard key={idx} p={p} />
                                 ))}
@@ -95,27 +129,24 @@ export default function ChatPage() {
                     </div>
                 ))}
 
-                {/* Yüklenme adımları */}
                 {sending && (
-                    <div className="bg-gray-50 border rounded-2xl px-3 py-2">
+                    <div className="mt-3">
                         <LoadingSteps stage={stage} />
                     </div>
                 )}
             </div>
 
-            {/* Giriş alanı */}
             <div className="mt-4 flex gap-2">
                 <input
-                    className="flex-1 border rounded-xl px-4 py-3"
-                    placeholder="Sorunu yaz (örn: 2.000 TL altı, kablosuz, 60g altı mouse)"
+                    className="flex-1 border rounded-lg px-4 py-2"
+                    placeholder="İstediğin ürünü ve özelliklerini yaz (örn: logitech 55g altı kablosuz 1500-2500 TL)"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                     onKeyDown={(e) => (e.key === "Enter" ? ask() : null)}
                 />
                 <button
                     onClick={ask}
-                    disabled={sending}
-                    className="rounded-xl bg-green-600 text-white px-5 py-3 hover:bg-green-700 disabled:opacity-50"
+                    className="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
                 >
                     Gönder
                 </button>
