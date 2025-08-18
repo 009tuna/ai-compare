@@ -1,25 +1,31 @@
 // src/app/api/analyze/route.ts
-export const runtime = "nodejs"; // Kimlik dosyasını (service-account.json) okuyabilsin
 import { NextResponse } from "next/server";
-import { analyzeWithVertex } from "@/lib/vertex";
-import type { ProductSearchResult, Criteria } from "@/types";
+import { analyzeWithVertex, type Product } from "@/lib/vertex";
+import { normalizeToProducts, toCriteriaString } from "@/lib/normalize";
 
 export async function POST(req: Request) {
   try {
-    const { items, criteria } = (await req.json()) as {
-      items: ProductSearchResult[];
-      criteria?: Criteria;
-    };
-    if (!Array.isArray(items) || !items.length) {
-      return NextResponse.json({ error: "items required" }, { status: 400 });
+    const body: any = await req.json();
+
+    // items → Product[]
+    const rawItems: any[] = Array.isArray(body?.items) ? body.items : [];
+    const items: Product[] = normalizeToProducts(rawItems);
+
+    const criteriaStr = toCriteriaString(body?.criteria);
+
+    if (!items.length) {
+      return NextResponse.json(
+        {
+          analysis:
+            "Uygun ürün listesi gelmedi veya arama sonuçsuz. Arama ifadesini biraz genişlet ya da marka/model adı ekle.",
+        },
+        { status: 200 }
+      );
     }
-    const analysis = await analyzeWithVertex(items, criteria);
-    return NextResponse.json({ analysis });
-  } catch (e: any) {
-    console.error("ANALYZE_ERROR", {
-      message: e?.message || String(e),
-      stack: e?.stack,
-    });
+
+    const analysis = await analyzeWithVertex(items, criteriaStr);
+    return NextResponse.json({ analysis }, { status: 200 });
+  } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: "analyze failed", message: msg }, { status: 500 });
   }

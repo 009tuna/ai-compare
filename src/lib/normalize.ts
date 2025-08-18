@@ -1,64 +1,80 @@
 // src/lib/normalize.ts
-import type { ProductSearchResult } from "@/types";
+import type { Product } from "@/lib/vertex";
+import { parsePriceTRY } from "@/lib/enrich";
 
-// "₺1.599,00", "1.599 TL", "1599 TL" → 1599
-export function parseTryPrice(input?: string): number | undefined {
-    if (!input) return;
-    const s = input
-        .replace(/[₺\s]/g, "")
-        .replace(/\./g, "")
-        .replace(/,(\d{2})$/, ".$1");
-    const n = Number(s.replace(/[^\d.]/g, ""));
-    return Number.isFinite(n) ? Math.round(n) : undefined;
+type AnyItem = any;
+
+export function toCriteriaString(val: unknown): string {
+    if (typeof val === "string") return val;
+    try {
+        return val == null ? "" : JSON.stringify(val);
+    } catch {
+        return "";
+    }
 }
 
-export function extractDpi(text: string): number | undefined {
-    const m = text.match(/(\d{4,5})\s*DPI/i);
-    return m ? Number(m[1]) : undefined;
-}
+/** Gelen diziyi (ProductSearchResult, organic/shopping item vs.) tek tip Product[]'a dönüştürür. */
+export function normalizeToProducts(items: AnyItem[]): Product[] {
+    if (!Array.isArray(items)) return [];
 
-export function extractWeight(text: string): number | undefined {
-    const m = text.match(/(\d{2,3})\s*g\b/i);
-    return m ? Number(m[1]) : undefined;
-}
-
-export function enhance(items: ProductSearchResult[]) {
-    return items.map((it) => {
-        const priceNum = parseTryPrice(it.price);
-        const dpi = extractDpi(it.title);
-        const weight = extractWeight(it.title);
-        return { ...it, priceNum, dpi, weight };
-    });
-}
-
-// Basit skor: hafiflik + DPI
-export function score(item: ProductSearchResult): number {
-    let s = 0;
-    if (item.weight) s += 100 - Math.min(item.weight, 100);
-    if (item.dpi) s += Math.min(item.dpi, 32000) / 1000;
-    return s;
-}
-
-// Fiyat bandı kovaları
-export function bucketize(
-    items: ProductSearchResult[],
-    target?: number
-): { same: ProductSearchResult[]; cheaper: ProductSearchResult[]; higher: ProductSearchResult[] } {
-    if (!target) return { same: items, cheaper: [], higher: [] };
-
-    const same: ProductSearchResult[] = [];
-    const cheaper: ProductSearchResult[] = [];
-    const higher: ProductSearchResult[] = [];
+    const out: Product[] = [];
 
     for (const it of items) {
-        if (!it.priceNum) {
-            same.push(it);
-            continue;
+        const name: string =
+            (it?.name as string) ||
+            (it?.title as string) ||
+            (it?.productName as string) ||
+            "Ürün";
+
+        // URL tahmini: sources[0].url -> url -> link
+        const primaryUrl: string =
+            (it?.sources?.[0]?.url as string) ||
+            (it?.url as string) ||
+            (it?.link as string) ||
+            "";
+
+        // Fiyat tahmini: number → direkt; string → TRY parse; sources[0].price → number ise al
+        const fromNum =
+            typeof it?.price === "number"
+                ? (it.price as number)
+                : typeof it?.price?.min === "number"
+                    ? (it.price.min as number)
+                    : typeof it?.sources?.[0]?.price === "number"
+                        ? (it.sources[0].price as number)
+                        : null;
+
+        const fromStr =
+            parsePriceTRY(it?.price) ??
+            parsePriceTRY(it?.priceText) ??
+            null;
+
+        const priceNum = fromNum ?? fromStr ?? null;
+
+        // sources dizisini toparla
+        const sources: { url: string; price?: number | null }[] = [];
+        if (Array.isArray(it?.sources)) {
+            for (const s of it.sources) {
+                if (!s?.url) continue;
+                sources.push({
+                    url: String(s.url),
+                    price: typeof s.price === "number" ? s.price : null,
+                });
+            }
         }
-        const diff = it.priceNum - target;
-        if (Math.abs(diff) <= 500) same.push(it); // ±₺500 → aynı band
-        else if (diff < -500) cheaper.push(it);
-        else higher.push(it);
+        if (!sources.length && primaryUrl) {
+            sources.push({ url: primaryUrl, price: priceNum });
+        }
+
+        const specs =
+            (typeof it?.specs === "object" && it?.specs) ? it.specs : {};
+
+        out.push({
+            name,
+            sources,
+            price: { min: priceNum, max: priceNum, currency: "TRY" },
+            specs,
+        });
     }
-    return { same, cheaper, higher };
+
+    return out;
 }
